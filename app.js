@@ -54,7 +54,50 @@ async function download(name, content, type) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
-async function exportBackup(){let salt=await get('salt'),encrypted=await get('vault');let pack={format:'i-miei-mondi-backup',version:1,created:new Date().toISOString(),salt,encrypted};download('i-miei-mondi-backup-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify(pack),'application/json');alert('Backup cifrato creato. Conservalo in un luogo sicuro insieme alla tua password. Il file non è leggibile senza password.')}
+async function exportBackup() {
+  const salt = await get('salt');
+  const encrypted = await get('vault');
+
+  if (!salt || !encrypted) {
+    alert('Nessun diario cifrato trovato.');
+    return;
+  }
+
+  const pack = {
+    format: 'i-miei-mondi-backup',
+    version: 1,
+    created: new Date().toISOString(),
+    salt,
+    encrypted
+  };
+
+  const data = JSON.stringify(pack);
+
+  const area = document.createElement('textarea');
+  area.value = data;
+  area.readOnly = true;
+  area.style.cssText =
+    'position:fixed;inset:5%;width:90%;height:65%;z-index:99999;background:white;color:black;padding:12px;font-size:14px;box-sizing:border-box;';
+
+  const close = document.createElement('button');
+  close.textContent = 'CHIUDI';
+  close.style.cssText =
+    'position:fixed;bottom:8%;left:5%;width:90%;height:55px;z-index:100000;background:#222;color:white;font-size:18px;';
+
+  close.onclick = () => {
+    area.remove();
+    close.remove();
+  };
+
+  document.body.appendChild(area);
+  document.body.appendChild(close);
+
+  area.focus();
+  area.select();
+
+  alert('Backup cifrato pronto. Copia tutto il testo e salvalo in un file .json.');
+}
+
 async function importBackup(input){let f=input.files[0];if(!f)return;if(f.size>100*1024*1024){alert('File troppo grande');return}try{let p=JSON.parse(await f.text());if(p.format!=='i-miei-mondi-backup'||p.version!==1||!p.salt||!p.encrypted?.iv||!p.encrypted?.cipher)throw Error('format');let pass=prompt('Inserisci la password del backup da importare');if(pass===null)return;let k=await derive(pass,un64(p.salt));let restored=await unseal(p.encrypted,k);if(!Array.isArray(restored.diaries)||!Array.isArray(restored.entries))throw Error('data');if(!confirm('Questo backup sostituirà TUTTI i diari presenti sul dispositivo. Continuare?'))return;await put('salt',p.salt);await put('vault',p.encrypted);key=k;vault=restored;selected=null;go('home');alert('Backup ripristinato.')}catch{alert('Backup non valido o password errata. Nessun dato è stato sostituito.')}}
 function settings(){shell(`<div class="card"><h2>Privacy e backup</h2><p>I tuoi dati sono cifrati sul dispositivo tramite AES-GCM. La chiave deriva dalla tua password con PBKDF2. Non inviamo i tuoi diari a un server.</p><p class="notice">Importante: se dimentichi la password, i dati non sono recuperabili. Esporta periodicamente un backup e conservalo fuori dal telefono. Cancellare i dati del browser elimina anche i diari locali.</p><button class="btn full" onclick="exportBackup()">↓ Esporta backup cifrato</button><label>Ripristina backup (sostituisce i dati attuali)</label><input class="field" type="file" accept="application/json,.json" onchange="importBackup(this)"><button class="btn secondary full" onclick="lock()">Blocca ora</button></div><div class="card"><h2>Domande per riflettere</h2>${prompts.map(p=>`<p>🌱 ${escapeHTML(p)}</p>`).join('')}</div><div class="card"><small>Versione 1.0 • Nessun account • Nessuna pubblicità • I dati rimangono sul dispositivo salvo esportazione manuale.</small></div>`,'Impostazioni')}
 (async()=>{try{if(!crypto.subtle||!indexedDB)throw Error('secure');db=await openDB();auth(!(await get('vault')));if('serviceWorker'in navigator&&location.protocol==='https:')navigator.serviceWorker.register('./sw.js').catch(()=>{})}catch{app.innerHTML='<div class="card"><h2>Connessione sicura necessaria</h2><p>Apri questa app da un sito HTTPS o da localhost in un browser moderno. La cifratura e il salvataggio locale non sono disponibili in questo contesto.</p></div>'}})();
