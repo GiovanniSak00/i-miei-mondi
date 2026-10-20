@@ -31,7 +31,29 @@ async function renameDiary(){let d=vault.diaries.find(x=>x.id===selected),name=p
 function calendar(){let now=new Date(),y=now.getFullYear(),m=now.getMonth();shell(`<div class="card"><h2>${now.toLocaleDateString('it-IT',{month:'long',year:'numeric'})}</h2><div class="calendar">${['L','M','M','G','V','S','D'].map(d=>`<b style="text-align:center">${d}</b>`).join('')}${Array.from({length:(new Date(y,m,1).getDay()+6)%7},()=>'<span></span>').join('')}${Array.from({length:new Date(y,m+1,0).getDate()},(_,i)=>{let date=`${y}-${String(m+1).padStart(2,'0')}-${String(i+1).padStart(2,'0')}`;return `<button class="day ${vault.entries.some(e=>e.date.startsWith(date))?'has':''}" onclick="calendarDay('${date}')">${i+1}</button>`}).join('')}</div></div><div class="card" id="calendarResults"><p class="muted">Tocca un giorno per vedere le voci.</p></div>`,'Calendario')}
 function calendarDay(date){let items=vault.entries.filter(e=>e.date.startsWith(date));$('#calendarResults').innerHTML=`<h3>${escapeHTML(date)}</h3>${items.length?items.map(entryHTML).join(''):'<p class="muted">Nessuna voce in questa data.</p>'}`}
 function search(){shell(`<div class="card"><label>Cerca in tutti i diari, anche per tag</label><input id="query" class="field" placeholder="Una parola, un ricordo, #tag..."><div id="results"></div></div>`,'Ricerca');$('#query').oninput=()=>{let q=$('#query').value.toLocaleLowerCase('it').trim();$('#results').innerHTML=q?vault.entries.filter(e=>[e.title,e.text,...e.tags].join(' ').toLocaleLowerCase('it').includes(q.replace(/^#/,''))).sort((a,b)=>b.date.localeCompare(a.date)).map(entryHTML).join('')||'<p class="muted">Nessun risultato.</p>':'<p class="muted">Scrivi qualcosa per iniziare.</p>';};$('#query').dispatchEvent(new Event('input'))}
-function download(name,content,type){let blob=new Blob([content],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),15000)}
+
+async function download(name, content, type) {
+  const blob = new Blob([content], {type});
+
+  if (navigator.share && navigator.canShare &&
+      navigator.canShare({files: [new File([blob], name, {type})]})) {
+    await navigator.share({
+      files: [new File([blob], name, {type})],
+      title: 'Backup I miei mondi'
+    });
+    return;
+  }
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
 async function exportBackup(){let salt=await get('salt'),encrypted=await get('vault');let pack={format:'i-miei-mondi-backup',version:1,created:new Date().toISOString(),salt,encrypted};download('i-miei-mondi-backup-'+new Date().toISOString().slice(0,10)+'.json',JSON.stringify(pack),'application/json');alert('Backup cifrato creato. Conservalo in un luogo sicuro insieme alla tua password. Il file non è leggibile senza password.')}
 async function importBackup(input){let f=input.files[0];if(!f)return;if(f.size>100*1024*1024){alert('File troppo grande');return}try{let p=JSON.parse(await f.text());if(p.format!=='i-miei-mondi-backup'||p.version!==1||!p.salt||!p.encrypted?.iv||!p.encrypted?.cipher)throw Error('format');let pass=prompt('Inserisci la password del backup da importare');if(pass===null)return;let k=await derive(pass,un64(p.salt));let restored=await unseal(p.encrypted,k);if(!Array.isArray(restored.diaries)||!Array.isArray(restored.entries))throw Error('data');if(!confirm('Questo backup sostituirà TUTTI i diari presenti sul dispositivo. Continuare?'))return;await put('salt',p.salt);await put('vault',p.encrypted);key=k;vault=restored;selected=null;go('home');alert('Backup ripristinato.')}catch{alert('Backup non valido o password errata. Nessun dato è stato sostituito.')}}
 function settings(){shell(`<div class="card"><h2>Privacy e backup</h2><p>I tuoi dati sono cifrati sul dispositivo tramite AES-GCM. La chiave deriva dalla tua password con PBKDF2. Non inviamo i tuoi diari a un server.</p><p class="notice">Importante: se dimentichi la password, i dati non sono recuperabili. Esporta periodicamente un backup e conservalo fuori dal telefono. Cancellare i dati del browser elimina anche i diari locali.</p><button class="btn full" onclick="exportBackup()">↓ Esporta backup cifrato</button><label>Ripristina backup (sostituisce i dati attuali)</label><input class="field" type="file" accept="application/json,.json" onchange="importBackup(this)"><button class="btn secondary full" onclick="lock()">Blocca ora</button></div><div class="card"><h2>Domande per riflettere</h2>${prompts.map(p=>`<p>🌱 ${escapeHTML(p)}</p>`).join('')}</div><div class="card"><small>Versione 1.0 • Nessun account • Nessuna pubblicità • I dati rimangono sul dispositivo salvo esportazione manuale.</small></div>`,'Impostazioni')}
